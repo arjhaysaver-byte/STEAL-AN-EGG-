@@ -1,0 +1,122 @@
+-- ETeleportReturn (LocalScript in StarterPlayerScripts)
+-- Press E → saves current position → fires remotes → teleports to target
+-- → waits → returns to saved position.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local TARGET_LOCATION = Vector3.new(272.7, 13.2, -79.1)
+
+-- ===== Config =====
+local RETURN_DELAY = 1.0  -- seconds before returning (change as you like)
+local COOLDOWN_TIME = 1.0 -- prevents spam of the whole sequence
+
+-- ===== Build the flip args (fresh each call) =====
+local function buildFlipArgs()
+	return {
+		{
+			Offset = 0.10224915354001496,
+			Dir = vector.create(0.42146584391593933, 0, -0.9068442583084106),
+			SlideSequence = 6,
+			At = 1793365623.6300683,
+			From = vector.create(0.4238585829734802, 0, -0.9057284593582153),
+			Cue = "Slide",
+			Stand = vector.create(305.875732421875, 13.138028144836426, -241.40823364257812),
+			Rating = "Perfect",
+			CueAt = 1793365623.5278192,
+			Pos = vector.create(302.1181335449219, 13.138028144836426, -233.32864379882812)
+		}
+	}
+end
+
+-- ===== Fire both remotes safely =====
+local function fireCombatRemotes()
+	local ok1, err1 = pcall(function()
+		ReplicatedStorage:WaitForChild("CombatSystem", 10)
+			:WaitForChild("commEvents", 10)
+			:WaitForChild("ComEvents", 10)
+			:WaitForChild("WeaponSlideFlip", 10)
+			:FireServer(unpack(buildFlipArgs()))
+	end)
+	if not ok1 then warn("[E-Teleport] WeaponSlideFlip failed:", err1) end
+
+	local ok2, err2 = pcall(function()
+		ReplicatedStorage:WaitForChild("CombatSystem", 10)
+			:WaitForChild("commEvents", 10)
+			:WaitForChild("ComEvents", 10)
+			:WaitForChild("WeaponSlideEnd", 10)
+			:FireServer()
+	end)
+	if not ok2 then warn("[E-Teleport] WeaponSlideEnd failed:", err2) end
+end
+
+-- ===== Get current character root =====
+local function getRoot()
+	local character = player.Character
+	if not character then return nil, nil end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	return root, humanoid
+end
+
+-- ===== Move to a CFrame =====
+local function moveTo(cf)
+	local root, humanoid = getRoot()
+	if not root or not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+	if humanoid.Sit then humanoid.Sit = false end
+
+	root.CFrame = cf
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return true
+end
+
+-- ===== Keybind: E =====
+local busy = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode ~= Enum.KeyCode.E then return end
+	if busy then return end
+	busy = true
+
+	local root, humanoid = getRoot()
+	if not root or not humanoid or humanoid.Health <= 0 then
+		busy = false
+		return
+	end
+
+	-- 1️⃣ Save previous location
+	local previousCFrame = root.CFrame
+	print("[E-Teleport] Saved previous position:", previousCFrame.Position)
+
+	-- 2️⃣ Fire remotes
+	fireCombatRemotes()
+	task.wait(0.15)
+
+	-- 3️⃣ Teleport to target
+	moveTo(CFrame.new(TARGET_LOCATION))
+	print("[E-Teleport] Teleported → (272.7, 13.2, -79.1)")
+
+	-- 4️⃣ Wait, then return to previous location
+	task.wait(RETURN_DELAY)
+
+	-- Make sure the character is still alive before returning
+	local root2, humanoid2 = getRoot()
+	if root2 and humanoid2 and humanoid2.Health > 0 then
+		moveTo(previousCFrame)
+		print("[E-Teleport] Returned to previous position:", previousCFrame.Position)
+	else
+		warn("[E-Teleport] Character lost before return — skipping")
+	end
+
+	-- 5️⃣ Cooldown
+	task.wait(COOLDOWN_TIME)
+	busy = false
+end)
+
+print("[E-Teleport] Loaded — press E to teleport and auto-return")
